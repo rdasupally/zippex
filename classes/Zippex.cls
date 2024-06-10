@@ -5,6 +5,27 @@ public class Zippex
 {    
     private Map<String, FileObject> zipFileMap = new Map<String, FileObject>{};
     protected String zipFileString = '';  // stores the Hex version of the file blob
+
+     // Local File Header Signature
+     private final static String LFH_SIGNATURE = '504b0304';      
+    
+     // Central Directory Signature
+     private final static String CFH_SIGNATURE = '504b0102';
+ 
+     // Data Descriptor Signature
+     private final static String DD_SIGNATURE  = '504b0708';
+ 
+     // End of Central Directory records
+     private final String endCentralDirSignature  = '504b0506'; //Little Endian formatted signature (4 bytes)
+     private final String numberOfThisDisk        = '0000'; // (2 bytes)
+     private final String numberOfTheDiskWithStartCentralDir = '0000'; //(2 bytes)
+     private String entriesInCentralDirOnThisDisk = '0000' ;//(2 bytes)
+     private String entriesCentralDir             = '0000'; //(2 bytes)
+     private String sizeOfCentralDir              = '00000000'; //(4 bytes)
+     private String offsetOfStartOfCentralDir     = '00000000'; //(4 bytes)
+     private String zipfileCommentLength          = '0000';  //(this is c), (2 bytes)
+     private String zipfileComment                = ''; // (c bytes)
+     //////TO DO: preserve file comment! 
     
     // Zippex constructor
     // Instantiates a new empty Zippex object (empty Zip archive).
@@ -134,27 +155,7 @@ public class Zippex
         return fileInfo;
     }
 
-    // Local File Header Signature
-    private final static String LFH_SIGNATURE = '504b0304';      
-    
-    // Central Directory Signature
-    private final static String CFH_SIGNATURE = '504b0102';
-
-    // Data Descriptor Signature
-    private final static String DD_SIGNATURE  = '504b0708';
-
-    // End of Central Directory records
-    private final String endCentralDirSignature  = '504b0506'; //Little Endian formatted signature (4 bytes)
-    private final String numberOfThisDisk        = '0000'; // (2 bytes)
-    private final String numberOfTheDiskWithStartCentralDir = '0000'; //(2 bytes)
-    private String entriesInCentralDirOnThisDisk = '0000' ;//(2 bytes)
-    private String entriesCentralDir             = '0000'; //(2 bytes)
-    private String sizeOfCentralDir              = '00000000'; //(4 bytes)
-    private String offsetOfStartOfCentralDir     = '00000000'; //(4 bytes)
-    private String zipfileCommentLength          = '0000';  //(this is c), (2 bytes)
-    private String zipfileComment                = ''; // (c bytes)
-    //////TO DO: preserve file comment!
-
+   
     private String assembleEndOfCentralDir ()
     {
         return endCentralDirSignature + numberOfThisDisk + numberOfTheDiskWithStartCentralDir + entriesInCentralDirOnThisDisk +
