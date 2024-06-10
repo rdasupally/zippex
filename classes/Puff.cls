@@ -10,6 +10,109 @@ public class Puff {
     private static final Integer MAXCODES = (MAXLCODES+MAXDCODES);  /* maximum codes lengths to read */
     private static final Integer FIXLCODES = 288;           /* number of fixed literal/length codes */
 
+    /*
+     * Decode literal/length and distance codes until an end-of-block code.
+     *
+     * Format notes:
+     *
+     * - Compressed data that is after the block type if fixed or after the code
+     *   description if dynamic is a combination of literals and length/distance
+     *   pairs terminated by and end-of-block code.  Literals are simply Huffman
+     *   coded bytes.  A length/distance pair is a coded length followed by a
+     *   coded distance to represent a string that occurs earlier in the
+     *   uncompressed data that occurs again at the current location.
+     *
+     * - Literals, lengths, and the end-of-block code are combined into a single
+     *   code of up to 286 symbols.  They are 256 literals (0..255), 29 length
+     *   symbols (257..285), and the end-of-block symbol (256).
+     *
+     * - There are 256 possible lengths (3..258), and so 29 symbols are not enough
+     *   to represent all of those.  Lengths 3..10 and 258 are in fact represented
+     *   by just a length symbol.  Lengths 11..257 are represented as a symbol and
+     *   some number of extra bits that are added as an integer to the base length
+     *   of the length symbol.  The number of extra bits is determined by the base
+     *   length symbol.  These are in the static arrays below, lens[] for the base
+     *   lengths and lext[] for the corresponding number of extra bits.
+     *
+     * - The reason that 258 gets its own symbol is that the longest length is used
+     *   often in highly redundant files.  Note that 258 can also be coded as the
+     *   base value 227 plus the maximum extra value of 31.  While a good deflate
+     *   should never do this, it is not an error, and should be decoded properly.
+     *
+     * - If a length is decoded, including its extra bits if any, then it is
+     *   followed a distance code.  There are up to 30 distance symbols.  Again
+     *   there are many more possible distances (1..32768), so extra bits are added
+     *   to a base value represented by the symbol.  The distances 1..4 get their
+     *   own symbol, but the rest require extra bits.  The base distances and
+     *   corresponding number of extra bits are below in the static arrays dist[]
+     *   and dext[].
+     *
+     * - Literal bytes are simply written to the output.  A length/distance pair is
+     *   an instruction to copy previously uncompressed bytes to the output.  The
+     *   copy is from distance bytes back in the output stream, copying for length
+     *   bytes.
+     *
+     * - Distances pointing before the beginning of the output data are not
+     *   permitted.
+     *
+     * - Overlapped copies, where the length is greater than the distance, are
+     *   allowed and common.  For example, a distance of one and a length of 258
+     *   simply copies the last byte 258 times.  A distance of four and a length of
+     *   twelve copies the last four bytes three times.  A simple forward copy
+     *   ignoring whether the length is greater than the distance or not implements
+     *   this correctly.  You should not use memcpy() since its behavior is not
+     *   defined for overlapped arrays.  You should not use memmove() or bcopy()
+     *   since though their behavior -is- defined for overlapping arrays, it is
+     *   defined to do the wrong thing in this case.
+     */
+    private final Integer[] lens = new List<Integer>{ /* Size base for length codes 257..285 */
+        3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
+        35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258};
+    private final Integer[] lext = new List<Integer>{ /* Extra bits for length codes 257..285 */
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+        3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0};
+    private final Integer[] dists = new List<Integer>{ /* Offset base for distance codes 0..29 */
+        1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
+        257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
+        8193, 12289, 16385, 24577};
+    private final Integer[] dext = new List<Integer>{ /* Extra bits for distance codes 0..29 */
+        0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
+        7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
+        12, 12, 13, 13};
+
+     /*
+     * Process a fixed codes block.
+     *
+     * Format notes:
+     *
+     * - This block type can be useful for compressing small amounts of data for
+     *   which the size of the code descriptions in a dynamic block exceeds the
+     *   benefit of custom codes for that block.  For fixed codes, no bits are
+     *   spent on code descriptions.  Instead the code lengths for literal/length
+     *   codes and distance codes are fixed.  The specific lengths for each symbol
+     *   can be seen in the "for" loops below.
+     *
+     * - The literal/length code is complete, but has two symbols that are invalid
+     *   and should result in an error if received.  This cannot be implemented
+     *   simply as an incomplete code since those two symbols are in the "middle"
+     *   of the code.  They are eight bits long and the longest literal/length\
+     *   code is nine bits.  Therefore the code must be constructed with those
+     *   symbols, and the invalid symbols must be detected after decoding.
+     *
+     * - The fixed distance codes also have two invalid symbols that should result
+     *   in an error if received.  Since all of the distance codes are the same
+     *   length, this can be implemented as an incomplete code.  Then the invalid
+     *   codes are detected while decoding.
+     */
+
+     private Integer virgin = 1;
+     private Integer[] lencnt = getIntArray(MAXBITS+1);
+     private Integer[] lensym = getIntArray(FIXLCODES);
+     private Integer[] distcnt = getIntArray(MAXBITS+1);
+     private Integer[] distsym = getIntArray(MAXDCODES);
+     private Huffman lencode = new Huffman();
+     private Huffman distcode = new Huffman();
+
     private Integer[] getIntArray(Integer size){
 
         return (Integer[]) JSON.deserialize('['+'0'.repeat(',',size) +']', Integer[].class);
@@ -105,8 +208,9 @@ public class Puff {
         s.bitcnt = 0;
 
         /* get length and check against its one's complement */
-        if (s.incnt + 4 > s.inlen)
+        if (s.incnt + 4 > s.inlen) {
             return 2;                               /* not enough input */
+        }
         len = (Integer)hexToLong(s.inStr.mid(s.incnt++ *2, 2));
         len |= (Integer)hexToLong(s.inStr.mid(s.incnt++ *2, 2)) << 8;
         s.incnt++;
@@ -222,11 +326,13 @@ public class Puff {
                 len++;
             }
             left = (MAXBITS+1) - len;
-            if (left == 0)
+            if (left == 0) {
                 break;
+            }
             bitbuf = (Integer)hexToLong(s.inStr.mid(s.incnt++ *2, 2));
-            if (left > 8)
+            if (left > 8) {
                 left = 8;
+            }
         }
         System.assert(false, 'Ran out of codes while decompressing.');
         return -10;                         /* ran out of codes */
@@ -273,110 +379,45 @@ public class Puff {
         Integer[] offs = getIntArray(MAXBITS+1);      /* offsets in symbol table for each length */
 
         /* count number of codes of each length */
-        for (len = 0; len <= MAXBITS; len++)
+        for (len = 0; len <= MAXBITS; len++) {
             h.count[len] = 0;
-        for (symbol = 0; symbol < n; symbol++)
+        }
+        for (symbol = 0; symbol < n; symbol++) {
             (h.count[length[symbol]])++;   /* assumes lengths are within bounds */
-        if (h.count[0] == n)               /* no codes! */
+        }
+        if (h.count[0] == n) {              /* no codes! */
             return 0;                       /* complete, but decode() will fail */
+        }
 
         /* check for an over-subscribed or incomplete set of lengths */
         left = 1;                            //one possible code of zero length 
         for (len = 1; len <= MAXBITS; len++) {
             left <<= 1;                     /* one more bit, double codes left */
             left -= h.count[len];          /* deduct count from possible codes */
-            if (left < 0)
+            if (left < 0) {
                 return left;                /* over-subscribed--return negative */
+            }
         }                                   /* left > 0 means incomplete */
 
         /* generate offsets into symbol table for each length for sorting */
         offs[1] = 0;
-        for (len = 1; len < MAXBITS; len++)
+        for (len = 1; len < MAXBITS; len++) {
             offs[len + 1] = offs[len] + h.count[len];
+        }
 
         /*
          * put symbols in table sorted by length, by symbol order within each
          * length
          */
-        for (symbol = 0; symbol < n; symbol++)
+        for (symbol = 0; symbol < n; symbol++) {
             if (length[symbol] != 0) {
                 h.symbol[offs[length[symbol]]] = symbol;
                 offs[length[symbol]]++;
             }
-
+        }
         /* return zero for complete set, positive for incomplete set */
         return left;
     }
-
-    /*
-     * Decode literal/length and distance codes until an end-of-block code.
-     *
-     * Format notes:
-     *
-     * - Compressed data that is after the block type if fixed or after the code
-     *   description if dynamic is a combination of literals and length/distance
-     *   pairs terminated by and end-of-block code.  Literals are simply Huffman
-     *   coded bytes.  A length/distance pair is a coded length followed by a
-     *   coded distance to represent a string that occurs earlier in the
-     *   uncompressed data that occurs again at the current location.
-     *
-     * - Literals, lengths, and the end-of-block code are combined into a single
-     *   code of up to 286 symbols.  They are 256 literals (0..255), 29 length
-     *   symbols (257..285), and the end-of-block symbol (256).
-     *
-     * - There are 256 possible lengths (3..258), and so 29 symbols are not enough
-     *   to represent all of those.  Lengths 3..10 and 258 are in fact represented
-     *   by just a length symbol.  Lengths 11..257 are represented as a symbol and
-     *   some number of extra bits that are added as an integer to the base length
-     *   of the length symbol.  The number of extra bits is determined by the base
-     *   length symbol.  These are in the static arrays below, lens[] for the base
-     *   lengths and lext[] for the corresponding number of extra bits.
-     *
-     * - The reason that 258 gets its own symbol is that the longest length is used
-     *   often in highly redundant files.  Note that 258 can also be coded as the
-     *   base value 227 plus the maximum extra value of 31.  While a good deflate
-     *   should never do this, it is not an error, and should be decoded properly.
-     *
-     * - If a length is decoded, including its extra bits if any, then it is
-     *   followed a distance code.  There are up to 30 distance symbols.  Again
-     *   there are many more possible distances (1..32768), so extra bits are added
-     *   to a base value represented by the symbol.  The distances 1..4 get their
-     *   own symbol, but the rest require extra bits.  The base distances and
-     *   corresponding number of extra bits are below in the static arrays dist[]
-     *   and dext[].
-     *
-     * - Literal bytes are simply written to the output.  A length/distance pair is
-     *   an instruction to copy previously uncompressed bytes to the output.  The
-     *   copy is from distance bytes back in the output stream, copying for length
-     *   bytes.
-     *
-     * - Distances pointing before the beginning of the output data are not
-     *   permitted.
-     *
-     * - Overlapped copies, where the length is greater than the distance, are
-     *   allowed and common.  For example, a distance of one and a length of 258
-     *   simply copies the last byte 258 times.  A distance of four and a length of
-     *   twelve copies the last four bytes three times.  A simple forward copy
-     *   ignoring whether the length is greater than the distance or not implements
-     *   this correctly.  You should not use memcpy() since its behavior is not
-     *   defined for overlapped arrays.  You should not use memmove() or bcopy()
-     *   since though their behavior -is- defined for overlapping arrays, it is
-     *   defined to do the wrong thing in this case.
-     */
-    private final Integer[] lens = new List<Integer>{ /* Size base for length codes 257..285 */
-        3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31,
-        35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258};
-    private final Integer[] lext = new List<Integer>{ /* Extra bits for length codes 257..285 */
-        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
-        3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0};
-    private final Integer[] dists = new List<Integer>{ /* Offset base for distance codes 0..29 */
-        1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193,
-        257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145,
-        8193, 12289, 16385, 24577};
-    private final Integer[] dext = new List<Integer>{ /* Extra bits for distance codes 0..29 */
-        0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6,
-        7, 7, 8, 8, 9, 9, 10, 10, 11, 11,
-        12, 12, 13, 13};
 
     public Integer codes(State s,
                     Huffman lencode,
@@ -390,8 +431,9 @@ public class Puff {
         /* decode literals and length/distance pairs */
         do {
             symbol = decode(s, lencode);
-            if (symbol < 0)
+            if (symbol < 0) {
                 return symbol;              /* invalid symbol */
+            }
             if (symbol < 256) {             /* literal: symbol is the byte */
                 /* write out the literal */
                 s.out += HexUtil.intToHexLE(symbol, 1);
@@ -431,39 +473,6 @@ public class Puff {
         return 0;
     }
 
-    /*
-     * Process a fixed codes block.
-     *
-     * Format notes:
-     *
-     * - This block type can be useful for compressing small amounts of data for
-     *   which the size of the code descriptions in a dynamic block exceeds the
-     *   benefit of custom codes for that block.  For fixed codes, no bits are
-     *   spent on code descriptions.  Instead the code lengths for literal/length
-     *   codes and distance codes are fixed.  The specific lengths for each symbol
-     *   can be seen in the "for" loops below.
-     *
-     * - The literal/length code is complete, but has two symbols that are invalid
-     *   and should result in an error if received.  This cannot be implemented
-     *   simply as an incomplete code since those two symbols are in the "middle"
-     *   of the code.  They are eight bits long and the longest literal/length\
-     *   code is nine bits.  Therefore the code must be constructed with those
-     *   symbols, and the invalid symbols must be detected after decoding.
-     *
-     * - The fixed distance codes also have two invalid symbols that should result
-     *   in an error if received.  Since all of the distance codes are the same
-     *   length, this can be implemented as an incomplete code.  Then the invalid
-     *   codes are detected while decoding.
-     */
-
-    private Integer virgin = 1;
-    private Integer[] lencnt = getIntArray(MAXBITS+1);
-    private Integer[] lensym = getIntArray(FIXLCODES);
-    private Integer[] distcnt = getIntArray(MAXBITS+1);
-    private Integer[] distsym = getIntArray(MAXDCODES);
-    private Huffman lencode = new Huffman();
-    private Huffman distcode = new Huffman();
-
     private integer fixed(State s)
     {
         /* build fixed huffman tables if first call (may not be thread safe) */
@@ -478,19 +487,24 @@ public class Puff {
             distcode.symbol = distsym;
 
             /* literal/length table */
-            for (symbol = 0; symbol < 144; symbol++)
+            for (symbol = 0; symbol < 144; symbol++) {
                 lengths[symbol] = 8;
-            for (; symbol < 256; symbol++)
+            }
+            for (; symbol < 256; symbol++) {
                 lengths[symbol] = 9;
-            for (; symbol < 280; symbol++)
+            }
+            for (; symbol < 280; symbol++) {
                 lengths[symbol] = 7;
-            for (; symbol < FIXLCODES; symbol++)
+            }
+            for (; symbol < FIXLCODES; symbol++) {
                 lengths[symbol] = 8;
+            }
             construct(lencode, lengths, FIXLCODES);
 
             /* distance table */
-            for (symbol = 0; symbol < MAXDCODES; symbol++)
+            for (symbol = 0; symbol < MAXDCODES; symbol++) {
                 lengths[symbol] = 5;
+            }
             construct(distcode, lengths, MAXDCODES);
 
             /* do this just once */
