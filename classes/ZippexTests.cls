@@ -9,18 +9,18 @@ private class ZippexTests
 
         String testData = 'This is a test';  //test data
         Integer expectedCRC32 = (Integer)(3229261618L);
-        System.assertEquals(HexUtil.CRC32Table(Blob.valueOf(testData)) , expectedCRC32);
-        System.assertEquals(HexUtil.CRC32Table(EncodingUtil.convertToHex(Blob.valueOf(testData))) , expectedCRC32);
+        System.assertEquals(HexUtil.getCRC32Table(Blob.valueOf(testData)) , expectedCRC32);
+        System.assertEquals(HexUtil.getCRC32Table(EncodingUtil.convertToHex(Blob.valueOf(testData))) , expectedCRC32);
 
         testData = 'test two';
         expectedCRC32 = 1542186603;
-        System.assertEquals(HexUtil.CRC32Table(Blob.valueOf(testData)) , expectedCRC32);
-        System.assertEquals(HexUtil.CRC32Table(EncodingUtil.convertToHex(Blob.valueOf(testData))) , expectedCRC32);
+        System.assertEquals(HexUtil.getCRC32Table(Blob.valueOf(testData)) , expectedCRC32);
+        System.assertEquals(HexUtil.getCRC32Table(EncodingUtil.convertToHex(Blob.valueOf(testData))) , expectedCRC32);
 
         testData = '';
         expectedCRC32 = 0;
-        System.assertEquals(HexUtil.CRC32Table(Blob.valueOf(testData)) , expectedCRC32);
-        System.assertEquals(HexUtil.CRC32Table(EncodingUtil.convertToHex(Blob.valueOf(testData))) , expectedCRC32);
+        System.assertEquals(HexUtil.getCRC32Table(Blob.valueOf(testData)) , expectedCRC32);
+        System.assertEquals(HexUtil.getCRC32Table(EncodingUtil.convertToHex(Blob.valueOf(testData))) , expectedCRC32);
 
         // public static Integer hexToIntLE(String hexString)
         System.assertEquals(HexUtil.hexToIntLE('ffffffff'),(Integer)(4294967295L));
