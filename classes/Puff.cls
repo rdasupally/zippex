@@ -4,11 +4,11 @@
 //Puff.cls based on Mark Adler's puff.c
 //
 public class Puff {
-    private final Integer MAXBITS = 15;             /* maximum bits in a code */
-    private final Integer MAXLCODES = 286;           /* maximum number of literal/length codes */
-    private final Integer MAXDCODES = 30;            /* maximum number of distance codes */
-    private final Integer MAXCODES = (MAXLCODES+MAXDCODES);  /* maximum codes lengths to read */
-    private final Integer FIXLCODES = 288;           /* number of fixed literal/length codes */
+    private static final Integer MAXBITS = 15;             /* maximum bits in a code */
+    private static final Integer MAXLCODES = 286;           /* maximum number of literal/length codes */
+    private static final Integer MAXDCODES = 30;            /* maximum number of distance codes */
+    private static final Integer MAXCODES = (MAXLCODES+MAXDCODES);  /* maximum codes lengths to read */
+    private static final Integer FIXLCODES = 288;           /* number of fixed literal/length codes */
 
     private Integer[] getIntArray(Integer size){
 
@@ -457,9 +457,12 @@ public class Puff {
      */
 
     private Integer virgin = 1;
-    private Integer[] lencnt = getIntArray(MAXBITS+1), lensym = getIntArray(FIXLCODES);
-    private Integer[] distcnt = getIntArray(MAXBITS+1), distsym = getIntArray(MAXDCODES);
-    private Huffman lencode = new Huffman(), distcode = new Huffman();
+    private Integer[] lencnt = getIntArray(MAXBITS+1);
+    private Integer[] lensym = getIntArray(FIXLCODES);
+    private Integer[] distcnt = getIntArray(MAXBITS+1);
+    private Integer[] distsym = getIntArray(MAXDCODES);
+    private Huffman lencode = new Huffman();
+    private Huffman distcode = new Huffman();
 
     private integer fixed(State s)
     {
@@ -587,7 +590,9 @@ public class Puff {
      */
     private Integer dynamic(State s)
     {
-        Integer nlen, ndist, ncode;             /* number of lengths in descriptor */
+        Integer nlen;
+        Integer ndist;
+        Integer ncode;             /* number of lengths in descriptor */
         Integer index;                          /* index of lengths[] */
         Integer err;                            /* construct() return value */
         Integer[] lengths = getIntArray(MAXCODES);       /* descriptor code lengths */
@@ -611,19 +616,23 @@ public class Puff {
         nlen = bits(s, 5) + 257;
         ndist = bits(s, 5) + 1;
         ncode = bits(s, 4) + 4;
-        if (nlen > MAXLCODES || ndist > MAXDCODES)
+        if (nlen > MAXLCODES || ndist > MAXDCODES) {
             return -3;                      /* bad counts */
+        }
 
         /* read code length code lengths (really), missing lengths are zero */
-        for (index = 0; index < ncode; index++)
+        for (index = 0; index < ncode; index++) {
             lengths[order[index]] = bits(s, 3);
-        for (; index < 19; index++)
+        }
+        for (; index < 19; index++) {
             lengths[order[index]] = 0;
+        }
 
         /* build huffman table for code lengths codes (use lencode temporarily) */
         err = construct(lencode, lengths, 19);
-        if (err != 0)               /* require complete code set here */
+        if (err != 0) {            /* require complete code set here */
             return -4;
+        }
 
         /* read length/literal and distance code length tables */
         index = 0;
@@ -632,42 +641,53 @@ public class Puff {
             Integer len;                /* last length to repeat */
 
             symbol = decode(s, lencode);
-            if (symbol < 0)
+            if (symbol < 0) {
                 return symbol;          /* invalid symbol */
-            if (symbol < 16)                /* length in 0..15 */
+            }
+
+            if (symbol < 16) {               /* length in 0..15 */
                 lengths[index++] = symbol;
+            }
             else {                          /* repeat instruction */
                 len = 0;                    /* assume repeating zeros */
                 if (symbol == 16) {         /* repeat last length 3..6 times */
-                    if (index == 0)
+                    if (index == 0) {
                         return -5;          /* no last length! */
+                    }
                     len = lengths[index - 1];       /* last length */
                     symbol = 3 + bits(s, 2);
                 }
-                else if (symbol == 17)      /* repeat zero 3..10 times */
+                else if (symbol == 17)  {    /* repeat zero 3..10 times */
                     symbol = 3 + bits(s, 3);
-                else                        /* == 18, repeat zero 11..138 times */
+                }
+                else {                        /* == 18, repeat zero 11..138 times */
                     symbol = 11 + bits(s, 7);
-                if (index + symbol > nlen + ndist)
+                }
+                if (index + symbol > nlen + ndist) {
                     return -6;              /* too many lengths! */
-                while (symbol-- != 0)            /* repeat last or zero symbol times */
+                }
+                while (symbol-- != 0) {           /* repeat last or zero symbol times */
                     lengths[index++] = len;
+                }
             }
         }
 
         /* check for end-of-block code -- there better be one! */
-        if (lengths[256] == 0)
+        if (lengths[256] == 0) {
             return -9;
+        }
 
         /* build huffman table for literal/length codes */
         err = construct(lencode, lengths, nlen);
-        if (err!=0 && (err < 0 || nlen != lencode.count[0] + lencode.count[1]))
+        if (err!=0 && (err < 0 || nlen != lencode.count[0] + lencode.count[1])) {
             return -7;      /* incomplete code ok only for single length 1 code */
+        }
 
         /* build huffman table for distance codes */
         err = construct(distcode, removeNElems(lengths, nlen), ndist);
-        if (err!=0 && (err < 0 || ndist != distcode.count[0] + distcode.count[1]))
+        if (err!=0 && (err < 0 || ndist != distcode.count[0] + distcode.count[1])) {
             return -8;      /* incomplete code ok only for single length 1 code */
+        }
 
         /* decode data until end-of-block code */
         return codes(s, lencode, distcode);
@@ -739,7 +759,8 @@ public class Puff {
     public String inflate()
     {
         Integer blockNum = 0;
-        Integer last, type;             /* block information */
+        Integer last;
+        Integer type;             /* block information */
         Integer err;                    /* return value */
 
         /* process blocks until last block or error */
@@ -753,8 +774,9 @@ public class Puff {
                         (type == 2 ?
                             dynamic(s) :
                             -1));       /* type == 3, invalid */
-            if (err != 0)
+            if (err != 0) {
                 break;                  /* return with error */
+            }
         } while (last == 0);
         
         System.assertEquals(0, err);

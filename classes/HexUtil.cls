@@ -3,7 +3,7 @@
 //
 public class HexUtil { 
 
-    private static final Integer[] table = new List<Integer> { 
+    private static final Integer[] TABLE = new List<Integer> { 
             0, 1996959894, -301047508, -1727442502, 124634137, 1886057615, -379345611, -1637575261,
             249268274, 2044508324, -522852066, -1747789432, 162941995, 2125561021, -407360249, -1866523247, 
             498536548, 1789927666, -205950648, -2067906082, 450548861, 1843258603, -187386543, -2083289657, 
@@ -37,7 +37,7 @@ public class HexUtil {
             -1111625188, -893730166, 1404277552, 615818150, -1160759803, -841546093, 1423857449, 601450431, 
             -1285129682, -1000256840, 1567103746, 711928724, -1274298825, -1022587231, 1510334235, 755167117};
 
-    public static Integer CRC32Table(Blob data) 
+    public static Integer getCRC32Table(Blob data) 
     { 
         Integer[] intArr = EncodingUtil.convertToHex(data).getChars();
         data = null;
@@ -50,7 +50,7 @@ public class HexUtil {
      
             b = ((intArr[i] & 15)+(intArr[i]>>>6)*9) * 16
               | (intArr[i+1] & 15)+(intArr[i+1]>>>6) * 9;
-            crc = (crc >>> 8) ^ table[(crc ^ b) & 255];
+            crc = (crc >>> 8) ^ TABLE[(crc ^ b) & 255];
 
         }
 
@@ -61,7 +61,7 @@ public class HexUtil {
         return crc;
     }
 
-    public static Integer CRC32Table(String hexStr) 
+    public static Integer getCRC32Table(String hexStr) 
     { 
         Integer b = 0;
         Integer crc = -1;  //hexToInt('ffffffff');
@@ -72,7 +72,7 @@ public class HexUtil {
      
             b = ((hexStr.charAt(i) & 15)+(hexStr.charAt(i)>>>6)*9) * 16
               | (hexStr.charAt(i+1) & 15)+(hexStr.charAt(i+1)>>>6) * 9;
-            crc = (crc >>> 8) ^ table[(crc ^ b) & 255];
+            crc = (crc >>> 8) ^ TABLE[(crc ^ b) & 255];
 
         }
 
@@ -83,7 +83,7 @@ public class HexUtil {
         return crc;
     }
 /*
-    public static Integer CRC32Table(Zippex.FileObject fObj) 
+    public static Integer getCRC32Table(Zippex.FileObject fObj) 
     { 
         //String hexString = EncodingUtil.convertToHex(data);
         //Integer[] intArr = new List<Integer>();//fObj.fileData.getChars();
@@ -97,7 +97,7 @@ public class HexUtil {
      
             b = ((fObj.fileData.charAt(i) & 15)+(fObj.fileData.charAt(i)>>>6)*9) * 16
               | (fObj.fileData.charAt(i+1) & 15)+(fObj.fileData.charAt(i+1)>>>6) * 9;
-            crc = (crc >>> 8) ^ table[(crc ^ b) & 255];
+            crc = (crc >>> 8) ^ TABLE[(crc ^ b) & 255];
 
         }
 
